@@ -1,25 +1,159 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
 output: 
-  html_document:
-    keep_md: true
+html_document:
+keep_md: true
 ---
 
-
 ## Loading and preprocessing the data
+```{r}
+library(dplyr)
 
+if (!file.exists("activity.csv")) {
+    unzip("activity.zip")
+    }
+activities <- read.csv("activity.csv", colClasses=c("numeric","POSIXct","numeric"), stringsAsFactors=FALSE)
+```
 
+## What is the mean total number of steps taken per day?
 
-## What is mean total number of steps taken per day?
+In order to take the first step, the data will be summarizee by date, then over all the intervals.
 
+```{r}
+day_groups <- group_by(activities, date)
+bydate <- summarize(day_groups, total=sum(steps, na.rm=TRUE))
+```
 
+The resultant histogram of total steps taken per day:
+
+```{r}
+hist(bydate$total, main="Histogram of total steps taken per day", xlab="Total Steps Taken per Day")
+```
+
+Mean value and the median value of the total steps taken per day:
+
+```{r}
+mean_steps <- as.integer(mean(bydate$total, na.rm=TRUE))
+median_steps <- as.integer(median(bydate$total, na.rm=TRUE))
+```
+
+The mean value of the total steps taken per day is `r mean_steps`.
+
+The median value of the total steps taken per day is `r median_steps`.
 
 ## What is the average daily activity pattern?
 
+Group by interval first, followed by a summary of the total steps by interval.
 
+```{r}
+intervals <- group_by(activities, interval) 
+byinterval <- summarize(intervals, avg=mean(steps, na.rm=TRUE))
+```
+
+A timeseries plot (in POSIX time) will provide some insight into most active periods of the day:
+
+```{r}
+with(byinterval, plot(strptime(sprintf("%04s", interval), "%H%M"), avg, type="l", xlab="5 minute intervals", ylab="Average Steps Taken"))
+```
+
+Pinpoint the interval that averaged the most steps in the summary:
+```{r}
+intvl_max <- sprintf("%04s", byinterval[which.max(byinterval$avg),]$interval)
+```
+
+So this individual seems to take the most steps in the five minute interval around `r paste(substr(intvl_max,1,2), ":", substr(intvl_max,3,4), sep='')`
 
 ## Imputing missing values
 
+How many step counts are missing:
 
+```{r}
+missing <- count(filter(activities, is.na(steps)))$n
+```
+The total number of missing values for reported steps is `r missing`.
+
+As a missing value imputation strategy, set any NA values in the imputed data set
+to the mean value of the interval over all days in the data set.
+```{r}
+imputeStepsIfNA <- function(interval, steps) {
+    if (is.na(steps)) {
+        as.integer(filter(byinterval, interval==interval)[1,2])
+        } else {
+            steps
+            }
+    }
+```
+
+Here is a new dataset that is identical to the original activities dataset,
+but has missing steps replaced with imputed values from the average of the
+given interval:
+
+```{r}
+imputed <- activities
+imputed$steps <- mapply(imputeStepsIfNA, imputed$interval, imputed$steps)
+```
+In order to determine the mean and median values of total number of steps taken per day
+given that missing values are filled in with imputed values, summarize the data,
+grouping by date.
+```{r}
+imputed_day_groups <- group_by(imputed, date)
+imputedbydate <- summarize(imputed_day_groups, total=sum(steps, na.rm=TRUE))
+```
+
+Here is a histogram of total steps taken per day including imputed values:
+
+```{r}
+hist(imputedbydate$total, main="Histogram of total steps taken per day", xlab="Total Steps Taken per Day")
+```
+
+Now, to calculate both the mean value and the median value of the total steps taken per day:
+
+```{r}
+imp_mean_steps <- as.integer(mean(imputedbydate$total))
+imp_median_steps <- as.integer(median(imputedbydate$total))
+```
+
+The mean value of the total steps taken per day including imputed values is `r mean_steps`.
+
+The median value of the total steps taken per day including imputed values is `r median_steps`.
+
+Considering that these values do not differ from the values determined when ignoring the missing data, we can determine that with this particular approach to imputing values, there is no impact to the mean and median of the steps.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+In order to determine the answer to this question, group our data differently, and add a new column to the dataset that identifies whether a given observation is on a weekday or a weekend.
+
+```{r}
+dayType <- function(date) {
+    if (weekdays(date) %in% c("Saturday","Sunday")) {
+        "weekend"
+        } else {
+            "weekday"
+            }
+    }
+imputed$daytype <- factor(mapply(dayType, imputed$date))
+```
+
+Next, filter by weekday and create a data frame summarized by the grouping over intervals for all weekdays.
+
+```{r}
+weekday_ints <- group_by(filter(imputed, daytype=='weekday'), interval)
+weekday_by_interval <- summarize(weekday_ints, avg=mean(steps))
+```
+
+Filter by weekend and create a data frame summarized by the grouping over intervals for all weekend days.
+
+```{r}
+weekend_ints <- group_by(filter(imputed, daytype=='weekend'), interval)
+weekend_by_interval <- summarize(weekend_ints, avg=mean(steps))
+```
+
+Create two plots, showing how the weekend and weekday intervals compare.
+
+```{r}
+par(mfrow=c(2,1))
+with(weekday_by_interval, plot(strptime(sprintf("%04s", interval), "%H%M"), avg, type="l",
+                               xlab="5 minute intervals", ylab="Average Steps Taken", main="Weekday Activity"))
+with(weekend_by_interval, plot(strptime(sprintf("%04s", interval), "%H%M"), avg, type="l",
+                               xlab="5 minute intervals", ylab="Average Steps Taken", main="Weekend Activity"))
+```
